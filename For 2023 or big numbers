@@ -1,0 +1,51 @@
+import random
+import math
+
+def find_period_classical(x, N):
+    """Find the period r of f(a) = x^a mod N (i.e., the order of x mod N)"""
+    t = x
+    n = 1
+    while t != 1:
+        t = (t * x) % N
+        n += 1
+        if n > N: 
+            return None
+    return n
+
+def shors_algorithm_classical(N, max_attempts=50):
+    attempts = 0
+    while attempts < max_attempts:
+        x = random.randint(2, N - 2)
+        if math.gcd(x, N) != 1:
+            # Surprising: x shares a trivial factor with N
+            p = math.gcd(x, N)
+            q = N // p
+            if p == 1 or q == 1 or p == N or q == N:
+                attempts += 1
+                continue
+            return {'x': x, 'r': 0, 'p': p, 'q': q, 'note': 'Trivial GCD found!'}
+        r = find_period_classical(x, N)
+        if r is None or r % 2 != 0:
+            attempts += 1
+            continue
+        xr2 = pow(x, r // 2, N)
+        if xr2 == N - 1 or xr2 == 1:
+            attempts += 1
+            continue
+        # gcd(x^{r/2} - 1, N), gcd(x^{r/2} + 1, N)
+        p = math.gcd(xr2 - 1, N)
+        q = math.gcd(xr2 + 1, N)
+        if 1 < p < N and 1 < q < N:
+            return {'x': x, 'r': r, 'p': p, 'q': q, 'note': 'Success!'}
+        attempts += 1
+    return {'x': None, 'r': None, 'p': None, 'q': None, 'note': 'Failed: Try more attempts or another N.'}
+
+N = 2023
+result = shors_algorithm_classical(N, max_attempts=100)
+print(f"Factoring N={N}:")
+if result['p'] and result['q']:
+    print(f"Nontrivial factors found: {result['p']} x {result['q']}")
+    print(f"Parameters: coprime x = {result['x']}, period r = {result['r']}")
+    print(f"({result['note']})")
+else:
+    print("Failed to find nontrivial factors using this simulation.")
