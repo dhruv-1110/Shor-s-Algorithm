@@ -1,0 +1,105 @@
+%matplotlib inline
+import matplotlib.pyplot as plt
+from qiskit import QuantumCircuit, transpile
+from qiskit_aer import AerSimulator
+from qiskit.visualization import plot_histogram
+from fractions import Fraction
+import math
+from IPython.display import display
+
+def qft_dagger(qc, n):
+    """Apply the inverse (dagger) QFT to the first n qubits, in place."""
+    for j in range(n // 2):
+        qc.swap(j, n - j - 1)
+    for j in range(n):
+        for m in range(j):
+            qc.cp(-math.pi / float(2 ** (j - m)), m, j)
+        qc.h(j)
+
+def c_amod15(a, power):
+    """Controlled multiply by (a^(2^power)) mod 15. Valid a: 2,7,8,11,13."""
+    U = QuantumCircuit(4)
+    for _ in range(power):
+        if a == 2:
+            U.swap(0, 1)
+            U.swap(1, 2)
+            U.swap(2, 3)
+        elif a == 7:
+            U.swap(2, 3)
+            U.swap(1, 2)
+            U.swap(0, 1)
+        elif a == 8:
+            U.swap(1, 3)
+            U.swap(0, 2)
+            U.swap(2, 3)
+            U.swap(0, 1)
+        elif a == 11:
+            U.swap(0, 2)
+            U.swap(2, 3)
+            U.swap(0, 1)
+            U.swap(1, 2)
+        elif a == 13:
+            U.swap(0, 1)
+            U.swap(1, 3)
+            U.swap(2, 3)
+            U.swap(2, 3)
+        else:
+            raise ValueError("a must be one of {2,7,8,11,13}")
+    U = U.to_gate()
+    U.name = f"{a}^{{2^{power}}} mod 15"
+    return U.control()
+
+def run_shor_with_visuals(N=15, valid_x=(2,7,8,11,13), n_count=4, shots=1024):
+    """Try all valid coprime bases for period-finding, show circuit and histogram at each attempt."""
+    for x in valid_x:
+        print(f"\n==== Trying x = {x} ====")
+        if math.gcd(x, N) != 1:
+            print(f"x={x} is not coprime to N={N}, skipping.")
+            continue
+
+        # Build the circuit
+        qc = QuantumCircuit(n_count + 4, n_count)
+        qc.h(range(n_count))
+        qc.x(n_count + 3)  # |1> (work register)
+        for q in range(n_count):
+            qc.append(c_amod15(x, 2 ** q), [q] + [n_count + i for i in range(4)])
+        qft_dagger(qc, n_count)
+        qc.measure(range(n_count), range(n_count))
+        display(qc.draw('mpl'))  # Show the circuit
+
+        # Simulate
+        sim = AerSimulator()
+        compiled = transpile(qc, sim)
+        job = sim.run(compiled, shots=shots)
+        result = job.result()
+        counts = result.get_counts()
+        print("Measurement Results:", counts)
+        plot_histogram(counts)
+        plt.show()
+
+        # Post-processing: extract period r
+        measured_bitstring = max(counts, key=counts.get)
+        measured = int(measured_bitstring, 2)
+        phase = measured / (2 ** n_count)
+        print(f"Measured phase: {phase:.3f}")
+        frac = Fraction(phase).limit_denominator(N)
+        r = frac.denominator
+        print(f"Estimated period r = {r}")
+        if r % 2 != 0 or r == 1:
+            print("Period is not even (or is 1); trying next x.\n")
+            continue
+
+        xr2 = pow(x, r // 2, N)
+        if xr2 in (N - 1, 1):
+            print("x^(r/2) mod N is ±1; trying next x.\n")
+            continue
+        p = math.gcd(xr2 - 1, N)
+        q = math.gcd(xr2 + 1, N)
+        if 1 < p < N and 1 < q < N:
+            print(f"\nNontrivial factors found: {p} x {q}")
+            print(f"Success: Factors of {N} are {p} and {q}")
+            break
+        else:
+            print("Failed to find nontrivial factors; trying next x.\n")
+
+run_shor_with_visuals()
